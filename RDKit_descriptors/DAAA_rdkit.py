@@ -24,12 +24,12 @@ PARSER.add_argument("-a", "--algorithm", default='rf', type=str, dest="a",
 
 ARGS = PARSER.parse_args()
 
+#set a global seed for the software
 seed = 2023
 print('Global seed: ', seed)
-
 np.random.seed(seed)
 
-
+#chooses a model given a dictionary of hyperparameters 
 def choose_model(best_params):
 
     if best_params == None:
@@ -51,13 +51,14 @@ def choose_model(best_params):
                                              min_samples_leaf=best_params['min_samples_leaf'], min_samples_split=best_params['min_samples_split'], random_state=best_params['random_state'])
         
 
+#opens the dataset 
 def choose_dataset():
     cols = ['Example', 'SMILES', 'ligand_smiles', 'solvent SMILE', '%topA']
     data = pd.read_csv('DAAA-Final.csv', index_col=0, usecols=cols)
     data = data.dropna(axis=0)
     return data
 
-
+#counts fragments given a molecule and a molecule type
 def count_fragments(mol, m_type):
     mol_frags = {}
     for i in dir(Fragments):
@@ -68,6 +69,7 @@ def count_fragments(mol, m_type):
     return mol_frags
 
 
+#calculates molecular descriptors given a molecule and a molecule type
 def calc_descriptors(mol, m_type):
     descriptors = ['MaxEStateIndex', 'MinEStateIndex', 'MaxAbsEStateIndex', 'MinAbsEStateIndex','qed','MaxPartialCharge','MinPartialCharge',
                'MaxAbsPartialCharge', 'MinAbsPartialCharge', 'BalabanJ', 'BertzCT', 'Chi0', 'Chi0n', 'Chi0v', 'Chi1', 'Chi1n', 'Chi1v',
@@ -81,6 +83,7 @@ def calc_descriptors(mol, m_type):
     return mol_desc
 
 
+#calculates fragments and molecular descriptors given the dataset
 def descriptors_all():
 
     data = choose_dataset()
@@ -118,7 +121,9 @@ def descriptors_all():
     return X, y, feat_names
 
 
+#selects the best features for predicting given a ML estimator
 def select_features(model, X, y, names):
+    print('Using ', model, 'as estimator of importance.')
     rfecv = RFECV(estimator = model,
                 step=1,
                 cv=10,
@@ -159,77 +164,84 @@ def hyperparam_tune(X, y, model, names):
         bestP = gridF.fit(X, y)
         params = bestP.best_params_
 
-    X = select_features(model, X, y, names)
+    #X = select_features(model, X, y, names)
     print(params)
     
     return params, X
 
 
-random_seeds = np.random.randint(0, high=1001, size=30)
-print(random_seeds)
+def main():
 
-X, y, feat_names = descriptors_all()
+    random_seeds = np.random.randint(0, high=1001, size=30) 
+    print('Random seeds generated for training-test random spliting:')
+    print(random_seeds)
 
-best_params, X = hyperparam_tune(X, y, choose_model(best_params=None), feat_names)
+    X, y, feat_names = descriptors_all()
 
-r2_cv_scores = []
-rmse_cv_scores = []
-mae_cv_scores = []
-r2_val_scores = []
-rmse_val_scores = []
-mae_val_scores = []
+    best_params, X = hyperparam_tune(X, y, choose_model(best_params=None), feat_names)
 
-for i in range(len(random_seeds)):
-    # split into training and validation sets, 9:1
-    X_train, X_val, y_train, y_val = train_test_split(X, y,
-                                                  test_size=0.1, random_state=random_seeds[i])
+    r2_cv_scores = []
+    rmse_cv_scores = []
+    mae_cv_scores = []
+    r2_val_scores = []
+    rmse_val_scores = []
+    mae_val_scores = []
 
-    X_train = np.array(X_train).astype('float64')
-    X_val = np.array(X_val).astype('float64')
-    y_train = np.array(y_train).astype('float64')
-    y_val = np.array(y_val).astype('float64')
+    for i in range(len(random_seeds)):
+        # split into training and validation sets, 9:1
+        X_train, X_val, y_train, y_val = train_test_split(X, y,
+                                                    test_size=0.1, random_state=random_seeds[i])
 
-    # 5 fold CV on training set, repeated 3 times
-    for j in range(3):
-        kfold = KFold(n_splits=5)
-        for train, test in kfold.split(X_train, y_train):
-            model = choose_model(best_params)
-            model.fit(X_train[train], y_train[train])
-            predictions = model.predict(X_train[test]).reshape(1, -1)[0]
+        X_train = np.array(X_train).astype('float64')
+        X_val = np.array(X_val).astype('float64')
+        y_train = np.array(y_train).astype('float64')
+        y_val = np.array(y_val).astype('float64')
 
-            r2 = r2_score(y_train[test], predictions)
-            rmse = math.sqrt(mean_squared_error(y_train[test], predictions))
-            mae = mean_absolute_error(y_train[test], predictions)
-            r2_cv_scores.append(r2)
-            rmse_cv_scores.append(rmse)
-            mae_cv_scores.append(mae)
+        # 5 fold CV on training set, repeated 3 times
+        for _ in range(3):
+            kfold = KFold(n_splits=5)
+            for train, test in kfold.split(X_train, y_train):
+                model = choose_model(best_params)
+                model.fit(X_train[train], y_train[train])
+                predictions = model.predict(X_train[test]).reshape(1, -1)[0]
 
-
-    # predict on validaiton set
-    model = choose_model(best_params)
-    model.fit(X_train, y_train)
-
-    predictions = model.predict(X_val)
-    r2 = r2_score(y_val, predictions)
-    rmse = math.sqrt(mean_squared_error(y_val, predictions))
-    mae = mean_absolute_error(y_val, predictions)
-    r2_val_scores.append(r2)
-    rmse_val_scores.append(rmse)
-    mae_val_scores.append(mae)
+                r2 = r2_score(y_train[test], predictions)
+                rmse = math.sqrt(mean_squared_error(y_train[test], predictions))
+                mae = mean_absolute_error(y_train[test], predictions)
+                r2_cv_scores.append(r2)
+                rmse_cv_scores.append(rmse)
+                mae_cv_scores.append(mae)
 
 
-print('Model:',  model)
-print('Random Seeds: ', random_seeds, '\n')
+        # predict on validaiton set
+        model = choose_model(best_params)
+        model.fit(X_train, y_train)
 
-print('Num CV Scores: ', len(r2_cv_scores))
-print('CV R2 Mean: ', round(np.mean(np.array(r2_cv_scores)),3), '+/-', round(np.std(np.array(r2_cv_scores)),3))
-print('CV RMSE Mean %: ', round(np.mean(np.array(rmse_cv_scores)),2), '+/-', round(np.std(np.array(rmse_cv_scores)),2))
-print('CV MAE Mean: ', round(np.mean(np.array(mae_cv_scores)),2), '+/-', round(np.std(np.array(mae_cv_scores)),2), '\n')
+        predictions = model.predict(X_val)
+        r2 = r2_score(y_val, predictions)
+        rmse = math.sqrt(mean_squared_error(y_val, predictions))
+        mae = mean_absolute_error(y_val, predictions)
+        r2_val_scores.append(r2)
+        rmse_val_scores.append(rmse)
+        mae_val_scores.append(mae)
 
 
-print('Num Val Scores: ', len(r2_val_scores))
-#print(r2_val_scores)
-print('Val R2 Mean: ', round(np.mean(np.array(r2_val_scores)),3), '+/-', round(np.std(np.array(r2_val_scores)),3))
-print('Val RMSE Mean %: ', round(np.mean(np.array(rmse_val_scores)),2), '+/-',round(np.std(np.array(rmse_val_scores)),3))
-print('Val MAE Mean: ', round(np.mean(np.array(mae_val_scores)),2), '+/-', round(np.std(np.array(mae_val_scores)),2))
+    print('Model:',  model)
+    print('Random Seeds: ', random_seeds, '\n')
 
+    print('Num CV Scores: ', len(r2_cv_scores))
+    print('CV R2 Mean: ', round(np.mean(np.array(r2_cv_scores)),3), '+/-', round(np.std(np.array(r2_cv_scores)),3))
+    print('CV RMSE Mean %: ', round(np.mean(np.array(rmse_cv_scores)),2), '+/-', round(np.std(np.array(rmse_cv_scores)),2))
+    print('CV MAE Mean: ', round(np.mean(np.array(mae_cv_scores)),2), '+/-', round(np.std(np.array(mae_cv_scores)),2), '\n')
+
+
+    print('Num Val Scores: ', len(r2_val_scores))
+    #print(r2_val_scores)
+    print('Val R2 Mean: ', round(np.mean(np.array(r2_val_scores)),3), '+/-', round(np.std(np.array(r2_val_scores)),3))
+    print('Val RMSE Mean %: ', round(np.mean(np.array(rmse_val_scores)),2), '+/-',round(np.std(np.array(rmse_val_scores)),3))
+    print('Val MAE Mean: ', round(np.mean(np.array(mae_val_scores)),2), '+/-', round(np.std(np.array(mae_val_scores)),2))
+
+
+
+if __name__ == "__main__":  
+    main()   
