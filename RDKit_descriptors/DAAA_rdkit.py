@@ -26,7 +26,7 @@ ARGS = PARSER.parse_args()
 
 #set a global seed for the software
 seed = 2023
-print('Global seed: ', seed)
+print('\n Global seed: ', seed)
 np.random.seed(seed)
 
 #chooses a model given a dictionary of hyperparameters 
@@ -133,14 +133,14 @@ def select_features(model, X, y, names):
     print(f"Optimal number of features: {rfecv.n_features_}")
     names = rfecv.get_feature_names_out(names)
     print('The selected features are:')
-    print(names)
+    print(names, '\n')
     X = rfecv.transform(X)
     return X
 
 
 def hyperparam_tune(X, y, model, names):
 
-    print(str(model))
+    print('ML algorithm to be tunned:', str(model))
 
     if str(model) == 'LinearRegression()':
         params = None
@@ -165,7 +165,7 @@ def hyperparam_tune(X, y, model, names):
         params = bestP.best_params_
 
     #X = select_features(model, X, y, names)
-    print(params)
+    print('Best hyperparameters:', params, '\n')
     
     return params, X
 
@@ -175,10 +175,13 @@ def main():
     random_seeds = np.random.randint(0, high=1001, size=30) 
     print('Random seeds generated for training-test random spliting:')
     print(random_seeds)
+    print('\n')
 
     X, y, feat_names = descriptors_all()
 
-    best_params, X = hyperparam_tune(X, y, choose_model(best_params=None), feat_names)
+    best_params, _ = hyperparam_tune(X, y, choose_model(best_params=None), feat_names)
+
+    X = select_features(choose_model(best_params=best_params),X,y,names=feat_names)
 
     r2_cv_scores = []
     rmse_cv_scores = []
@@ -187,6 +190,7 @@ def main():
     rmse_val_scores = []
     mae_val_scores = []
 
+    print('Initialising training-test spliting and training-testing process.')
     for i in range(len(random_seeds)):
         # split into training and validation sets, 9:1
         X_train, X_val, y_train, y_val = train_test_split(X, y,
@@ -239,7 +243,7 @@ def main():
     #print(r2_val_scores)
     print('Val R2 Mean: ', round(np.mean(np.array(r2_val_scores)),3), '+/-', round(np.std(np.array(r2_val_scores)),3))
     print('Val RMSE Mean %: ', round(np.mean(np.array(rmse_val_scores)),2), '+/-',round(np.std(np.array(rmse_val_scores)),3))
-    print('Val MAE Mean: ', round(np.mean(np.array(mae_val_scores)),2), '+/-', round(np.std(np.array(mae_val_scores)),2))
+    print('Val MAE Mean: ', round(np.mean(np.array(mae_val_scores)),2), '+/-', round(np.std(np.array(mae_val_scores)),2), '\n')
 
 
 
