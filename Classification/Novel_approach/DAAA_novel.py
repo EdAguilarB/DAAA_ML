@@ -1,7 +1,3 @@
-# Copyright 2021 Benjamin Owen, Apache 2.0
-# University of Nottingham, GSK-EPSRC Prosperity Partnership EP/S035990/1
-# and EPSRC award EP/S022236/1 
-
 import argparse
 import pandas as pd
 import numpy as np
