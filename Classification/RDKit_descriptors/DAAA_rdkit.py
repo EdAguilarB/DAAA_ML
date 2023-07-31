@@ -6,9 +6,10 @@ import math
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import RobustScaler
 from sklearn.model_selection import GridSearchCV
-from sklearn.linear_model import LinearRegression
-from sklearn.ensemble import RandomForestRegressor, GradientBoostingRegressor
-from sklearn.metrics import mean_squared_error, r2_score, mean_absolute_error
+from sklearn.linear_model import LogisticRegression
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.ensemble import GradientBoostingClassifier
+from sklearn.metrics import precision_score, recall_score, roc_auc_score
 from sklearn.model_selection import KFold
 from sklearn.feature_selection import RFECV
 
@@ -34,21 +35,22 @@ def choose_model(best_params):
 
     if best_params == None:
         if ARGS.a == 'rf':
-            return RandomForestRegressor(random_state=seed)
+            return RandomForestClassifier()
         if ARGS.a == 'lr':
-            return LinearRegression()
+            return LogisticRegression()
         if ARGS.a == 'gb':
-            return GradientBoostingRegressor(random_state=seed)
+            return GradientBoostingClassifier()
 
     else:
         if ARGS.a == 'rf':
-            return RandomForestRegressor(n_estimators=best_params["n_estimators"], max_depth=best_params["max_depth"], min_samples_leaf=best_params['min_samples_leaf'], 
-                                     min_samples_split=best_params['min_samples_split'], random_state=best_params['random_state'])
+            return RandomForestClassifier(n_estimators=best_params["n_estimators"], max_depth=best_params["max_depth"], min_samples_leaf=best_params['min_samples_leaf'], 
+                                            min_samples_split=best_params['min_samples_split'], random_state=best_params['random_state'])
         if ARGS.a == 'lr':
-            return LinearRegression()
+            return LogisticRegression(penalty=best_params['penalty'], tol=best_params['tol'], C=best_params['C'], 
+                                        fit_intercept=best_params['fit_intercept'], random_state=best_params['random_state'],max_iter=best_params['max_iter'])
         if ARGS.a == 'gb':
-            return GradientBoostingRegressor(loss = best_params['loss'], learning_rate=best_params['learning_rate'],n_estimators=best_params["n_estimators"], max_depth=best_params["max_depth"],
-                                             min_samples_leaf=best_params['min_samples_leaf'], min_samples_split=best_params['min_samples_split'], random_state=best_params['random_state'])
+            return GradientBoostingClassifier(loss = best_params['loss'], learning_rate=best_params['learning_rate'],n_estimators=best_params["n_estimators"], max_depth=best_params["max_depth"],
+                                                min_samples_leaf=best_params['min_samples_leaf'], min_samples_split=best_params['min_samples_split'], random_state=best_params['random_state'])
         
 
 #opens the dataset 
@@ -113,7 +115,8 @@ def descriptors_all():
 
     #scale features and convert to numpy
     X = RobustScaler().fit_transform(np.array(X))
-    y = data['%topA']
+
+    y = np.where(data['%topA']<50, 0, 1)
 
     print('Features shape: ', X.shape)
     print('Target variable shape: ', y.shape)
@@ -138,36 +141,40 @@ def select_features(model, X, y, names):
     return X
 
 
-def hyperparam_tune(X, y, model, names):
+def hyperparam_tune(X, y, model):
 
     print('ML algorithm to be tunned:', str(model))
 
-    if str(model) == 'LinearRegression()':
-        params = None
+    if str(model) == 'LogisticRegression()':
+        hyperP = dict(penalty=['l2'], 
+                        tol=[1e-4, 5e-4, 1e-3, 5e-3, 1e-2],
+                        C=[.001, .005, .01, .05, .1, .5, 1, ],
+                        fit_intercept=[False, True],
+                        random_state = [seed], 
+                        max_iter=[1000])
     
-    else: 
-        if str(model) == 'RandomForestRegressor(random_state=2023)':
-            hyperP = dict(n_estimators=[100, 300, 500, 800], 
+    
+    elif str(model) == 'RandomForestClassifier()':
+        hyperP = dict(n_estimators=[100, 300, 500, 800], 
                         max_depth=[None, 5, 8, 15, 25, 30],
                         min_samples_split=[2, 5, 10, 15, 100],
                         min_samples_leaf=[1, 2, 5, 10],
                         random_state = [seed])
 
-        elif str(model) == 'GradientBoostingRegressor(random_state=2023)':
-            hyperP = dict(loss=['squared_error'], learning_rate=[0.1, 0.2, 0.3],
+    elif str(model) == 'GradientBoostingClassifier()':
+        hyperP = dict(loss=['log_loss'], learning_rate=[0.1, 0.2, 0.3],
                         n_estimators=[100, 300, 500, 800], max_depth=[None, 5, 8, 15, 25, 30],
                         min_samples_split=[2],
                         min_samples_leaf=[1, 2],
                         random_state = [seed])
 
-        gridF = GridSearchCV(model, hyperP, cv=3, verbose=1, n_jobs=-1)
-        bestP = gridF.fit(X, y)
-        params = bestP.best_params_
+    gridF = GridSearchCV(model, hyperP, cv=3, verbose=1, n_jobs=-1)
+    bestP = gridF.fit(X, y)
 
-    #X = select_features(model, X, y, names)
+    params = bestP.best_params_
     print('Best hyperparameters:', params, '\n')
-    
-    return params, X
+
+    return params
 
 
 def main():
@@ -179,16 +186,16 @@ def main():
 
     X, y, feat_names = descriptors_all()
 
-    best_params, _ = hyperparam_tune(X, y, choose_model(best_params=None), feat_names)
+    best_params = hyperparam_tune(X, y, choose_model(best_params=None))
 
     X = select_features(choose_model(best_params=best_params),X,y,names=feat_names)
 
-    r2_cv_scores = []
-    rmse_cv_scores = []
-    mae_cv_scores = []
-    r2_val_scores = []
-    rmse_val_scores = []
-    mae_val_scores = []
+    auroc_cv_scores = []
+    prec_cv_scores = []
+    recall_cv_scores = []
+    auroc_val_scores = []
+    prec_val_scores = []
+    recall_val_scores = []
 
     print('Initialising training-test spliting and training-testing process.')
     for i in range(len(random_seeds)):
@@ -209,12 +216,12 @@ def main():
                 model.fit(X_train[train], y_train[train])
                 predictions = model.predict(X_train[test]).reshape(1, -1)[0]
 
-                r2 = r2_score(y_train[test], predictions)
-                rmse = math.sqrt(mean_squared_error(y_train[test], predictions))
-                mae = mean_absolute_error(y_train[test], predictions)
-                r2_cv_scores.append(r2)
-                rmse_cv_scores.append(rmse)
-                mae_cv_scores.append(mae)
+                auroc = roc_auc_score(y_train[test], predictions)
+                prec = precision_score(y_train[test], predictions)
+                recall = recall_score(y_train[test], predictions)
+                auroc_cv_scores.append(auroc)
+                prec_cv_scores.append(prec)
+                recall_cv_scores.append(recall)
 
 
         # predict on validaiton set
@@ -222,28 +229,27 @@ def main():
         model.fit(X_train, y_train)
 
         predictions = model.predict(X_val)
-        r2 = r2_score(y_val, predictions)
-        rmse = math.sqrt(mean_squared_error(y_val, predictions))
-        mae = mean_absolute_error(y_val, predictions)
-        r2_val_scores.append(r2)
-        rmse_val_scores.append(rmse)
-        mae_val_scores.append(mae)
+        auroc = roc_auc_score(y_val, predictions)
+        prec = precision_score(y_val, predictions)
+        recall = recall_score(y_val, predictions)
+        auroc_val_scores.append(auroc)
+        prec_val_scores.append(prec)
+        recall_val_scores.append(recall)
 
 
     print('Model:',  model)
     print('Random Seeds: ', random_seeds, '\n')
 
-    print('Num CV Scores: ', len(r2_cv_scores))
-    print('CV R2 Mean: ', round(np.mean(np.array(r2_cv_scores)),3), '+/-', round(np.std(np.array(r2_cv_scores)),3))
-    print('CV RMSE Mean %: ', round(np.mean(np.array(rmse_cv_scores)),2), '+/-', round(np.std(np.array(rmse_cv_scores)),2))
-    print('CV MAE Mean: ', round(np.mean(np.array(mae_cv_scores)),2), '+/-', round(np.std(np.array(mae_cv_scores)),2), '\n')
+    print('Num CV Scores: ', len(auroc_cv_scores))
+    print('CV AUROC Mean: ', round(np.mean(np.array(auroc_cv_scores)),3), '+/-', round(np.std(np.array(auroc_cv_scores)),3))
+    print('CV precision Mean %: ', round(np.mean(np.array(prec_cv_scores)),3), '+/-', round(np.std(np.array(prec_cv_scores)),3))
+    print('CV recall Mean: ', round(np.mean(np.array(recall_cv_scores)),3), '+/-', round(np.std(np.array(recall_cv_scores)),3), '\n')
 
 
-    print('Num Val Scores: ', len(r2_val_scores))
-    #print(r2_val_scores)
-    print('Val R2 Mean: ', round(np.mean(np.array(r2_val_scores)),3), '+/-', round(np.std(np.array(r2_val_scores)),3))
-    print('Val RMSE Mean %: ', round(np.mean(np.array(rmse_val_scores)),2), '+/-',round(np.std(np.array(rmse_val_scores)),3))
-    print('Val MAE Mean: ', round(np.mean(np.array(mae_val_scores)),2), '+/-', round(np.std(np.array(mae_val_scores)),2), '\n')
+    print('Num Val Scores: ', len(auroc_val_scores))
+    print('Val AUROC Mean: ', round(np.mean(np.array(auroc_val_scores)),3), '+/-', round(np.std(np.array(auroc_val_scores)),3))
+    print('Val precision Mean %: ', round(np.mean(np.array(prec_val_scores)),3), '+/-',round(np.std(np.array(prec_val_scores)),3))
+    print('Val recall Mean: ', round(np.mean(np.array(recall_val_scores)),3), '+/-', round(np.std(np.array(recall_val_scores)),3), '\n')
 
 
 
