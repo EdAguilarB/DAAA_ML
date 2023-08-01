@@ -2,6 +2,9 @@ import argparse
 import pandas as pd
 import numpy as np
 import math
+import matplotlib.pyplot as plt 
+from matplotlib import cm
+import copy
 
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import RobustScaler
@@ -15,6 +18,8 @@ from sklearn.feature_selection import RFECV
 from rdkit import Chem
 from rdkit.Chem import Descriptors
 from rdkit.Chem import Fragments
+
+import shap
 
 
 PARSER = argparse.ArgumentParser(description="Software to train ML models for the prediction of selectivity of DAAA reactions using traditional descriptors.")
@@ -135,7 +140,7 @@ def select_features(model, X, y, names):
     print('The selected features are:')
     print(names, '\n')
     X = rfecv.transform(X)
-    return X
+    return X, names
 
 
 def hyperparam_tune(X, y, model, names):
@@ -170,6 +175,23 @@ def hyperparam_tune(X, y, model, names):
     return params, X
 
 
+def plot_regression(y, y_hat, figure_title, dependent_variable):
+    fig, ax = plt.subplots()
+    ax.scatter(y, y_hat)
+    ax.plot([y.min(), y.max()], [y.min(), y.max()], 'k--', lw=4)
+    ax.set_xlabel('Measured ' + dependent_variable, fontsize = 13)
+    ax.set_ylabel('Predicted ' + dependent_variable, fontsize = 13)
+    plt.title(figure_title, fontsize = 13)
+    coefficient_of_dermination = r2_score(y, y_hat)
+    rmse = np.sqrt(mean_squared_error(y, y_hat))
+    mae = mean_absolute_error(y,y_hat)
+    legend = '$R^2$: '+str(float("{0:.2f}".format(coefficient_of_dermination))) + '\nRMSE: '
+    + str(float("{0:.2f}".format(rmse))) + '\nMAE: ' +str(float("{0:.2f}".format(mae)))
+    plt.legend(['Best fit',legend],loc = 'upper left', fontsize = 13)
+    plt.show()
+    
+
+
 def main():
 
     random_seeds = np.random.randint(0, high=1001, size=30) 
@@ -181,7 +203,7 @@ def main():
 
     best_params, _ = hyperparam_tune(X, y, choose_model(best_params=None), feat_names)
 
-    X = select_features(choose_model(best_params=best_params),X,y,names=feat_names)
+    X, names = select_features(choose_model(best_params=best_params),X,y,names=feat_names)
 
     r2_cv_scores = []
     rmse_cv_scores = []
@@ -189,6 +211,9 @@ def main():
     r2_val_scores = []
     rmse_val_scores = []
     mae_val_scores = []
+
+    shap_analysis = np.random.randint(0, len(random_seeds)-1)
+    print(f'Random partition seed used to make SHAP analysis: {random_seeds[shap_analysis]}')
 
     print('Initialising training-test spliting and training-testing process.')
     for i in range(len(random_seeds)):
@@ -229,6 +254,16 @@ def main():
         rmse_val_scores.append(rmse)
         mae_val_scores.append(mae)
 
+        if i == shap_analysis:
+
+            model_shap = copy.deepcopy(model)
+
+            X_shap_train = copy.deepcopy(X_train)
+            y_shap_train = copy.deepcopy(y_train)
+
+            X_shap_test = copy.deepcopy(X_val)
+            y_shap_test = copy.deepcopy(y_val)
+
 
     print('Model:',  model)
     print('Random Seeds: ', random_seeds, '\n')
@@ -243,6 +278,44 @@ def main():
     print('Val R2 Mean: ', round(np.mean(np.array(r2_val_scores)),3), '+/-', round(np.std(np.array(r2_val_scores)),3))
     print('Val RMSE Mean %: ', round(np.mean(np.array(rmse_val_scores)),2), '+/-',round(np.std(np.array(rmse_val_scores)),3))
     print('Val MAE Mean: ', round(np.mean(np.array(mae_val_scores)),2), '+/-', round(np.std(np.array(mae_val_scores)),2), '\n')
+
+
+
+    print('Initialising SHAP analysis')
+
+    y_hat = model_shap.predict(X_shap_train)
+    plot_regression(y_shap_train, y_hat, "Results for the Training Set", '%top')
+
+    y_hat = model_shap.predict(X_shap_test)
+    plot_regression(y_shap_test, y_hat, "Results for the Test Set", '%top')
+
+    if ARGS.a == 'lr':
+        explainer = shap.LinearExplainer(model, X_shap_train)
+    else:
+        explainer = shap.Explainer(model_shap, output_names=names)
+
+    shap_values_test = explainer.shap_values(X_shap_test)
+    shap_values_train = explainer.shap_values(X_shap_train)
+
+    print(f'Ploting shap analysis for {str(model_shap)}:\n')
+    plt.figure()
+    shap.summary_plot(shap_values_train, X_train, plot_type="bar", max_display = 8, plot_size= (14,5.5), feature_names=names) 
+
+    plt.figure()
+    shap.summary_plot(shap_values_train, X_train, max_display = 8, color_bar_label = 'Descriptor value', show = False, plot_size= (14,5.5), feature_names=names)
+    plt.grid()
+    plt.gcf().axes[-1].set_aspect('auto')
+    plt.tight_layout()
+
+    plt.gcf().axes[-1].set_box_aspect(50)
+    #Changing plot colours
+    for fc in plt.gcf().get_children():
+        for fcc in fc.get_children():
+            if hasattr(fcc, "set_cmap"):
+                fcc.set_cmap(cm.get_cmap('coolwarm'))
+    plt.show()
+
+
 
 
 
